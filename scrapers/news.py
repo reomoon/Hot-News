@@ -11,7 +11,9 @@ PC_HEADERS = {
 
 MOBILE_HEADERS = {
     "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
-    "Accept-Language": "ko-KR,ko;q=0.9",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
+    "Referer": "https://m.ruliweb.com/",
 }
 
 
@@ -102,7 +104,7 @@ def get_naver_section(section_url):
 
 def get_ruliweb_game():
     """루리웹 게임 뉴스"""
-    soup = fetch("https://m.ruliweb.com/news/board/11", headers=MOBILE_HEADERS)
+    soup = fetch("https://m.ruliweb.com/news/523", headers=MOBILE_HEADERS)
     if not soup:
         return []
 
@@ -110,28 +112,20 @@ def get_ruliweb_game():
     seen = set()
     rank = 1
 
-    for tr in soup.select("tr.table_body"):
-        a = tr.select_one("a.subject_link")
+    for li in soup.select("li.list_item"):
+        a = li.find("a", href=lambda h: h and "bbs.ruliweb.com" in h and "/read/" in h)
         if not a:
             continue
         href = a.get("href", "")
 
-        # 제목: num_reply 클래스 제외하고 텍스트 수집
-        title = ""
-        for node in a.children:
-            if isinstance(node, Tag):
-                if "num_reply" not in node.get("class", []):
-                    title += node.get_text(strip=True)
-            else:
-                title += str(node).strip()
-        title = title.strip()
+        strong = a.select_one("strong")
+        title = strong.get_text(strip=True) if strong else a.get_text(strip=True)
 
         if not title or len(title) < 3 or title in seen:
             continue
 
-        if href and not href.startswith("http"):
-            href = "https://m.ruliweb.com" + href
-        href = href.split("?")[0]
+        if href.startswith("//"):
+            href = "https:" + href
 
         seen.add(title)
         items.append({"rank": rank, "title": title, "url": href})

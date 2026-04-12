@@ -1,6 +1,7 @@
 from flask import Flask, jsonify, render_template
 from scrapers.community import SCRAPERS
 from scrapers.news import NEWS_SCRAPERS
+from scrapers.hotdeal import HOTDEAL_SCRAPERS
 import threading
 import time
 
@@ -43,6 +44,14 @@ def api_news(category):
         return jsonify({"error": "unknown category"}), 404
     data = get_cached(f"news_{category}", NEWS_SCRAPERS[category])
     return jsonify({"category": category, "items": data})
+
+
+@app.route("/api/hotdeal/<source>")
+def api_hotdeal(source):
+    if source not in HOTDEAL_SCRAPERS:
+        return jsonify({"error": "unknown source"}), 404
+    data = get_cached(f"hotdeal_{source}", HOTDEAL_SCRAPERS[source])
+    return jsonify({"source": source, "items": data})
 
 
 if __name__ == "__main__":

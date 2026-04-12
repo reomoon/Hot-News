@@ -1,6 +1,13 @@
 import requests
 import re
 from bs4 import BeautifulSoup, Tag
+try:
+    import cloudscraper
+    _scraper = cloudscraper.create_scraper(
+        browser={"browser": "chrome", "platform": "windows", "mobile": False}
+    )
+except Exception:
+    _scraper = None
 
 MOBILE_HEADERS = {
     "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
@@ -10,7 +17,23 @@ MOBILE_HEADERS = {
 
 PC_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
     "Accept-Language": "ko-KR,ko;q=0.9",
+    "Upgrade-Insecure-Requests": "1",
+}
+
+RULIWEB_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
+    "Referer": "https://m.ruliweb.com/",
+}
+
+DOGDRIP_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
+    "Referer": "https://www.dogdrip.net/",
 }
 
 
@@ -22,6 +45,19 @@ def fetch(url, headers=None, timeout=10):
         return BeautifulSoup(r.content, "lxml")
     except Exception as e:
         print(f"[fetch error] {url}: {e}")
+        return None
+
+
+def fetch_cf(url, timeout=15):
+    """Cloudflare 보호 사이트용 scraper"""
+    try:
+        if _scraper:
+            r = _scraper.get(url, timeout=timeout)
+            r.raise_for_status()
+            return BeautifulSoup(r.content, "lxml")
+        return fetch(url, timeout=timeout)
+    except Exception as e:
+        print(f"[fetch_cf error] {url}: {e}")
         return None
 
 
@@ -144,7 +180,7 @@ def get_fmkorea():
 
 def get_dogdrip():
     """개드립 인기글"""
-    soup = fetch("https://www.dogdrip.net/dogdrip")
+    soup = fetch("https://www.dogdrip.net/dogdrip", headers=DOGDRIP_HEADERS)
     if not soup:
         return []
 
@@ -174,7 +210,7 @@ def get_dogdrip():
 
 def get_ruliweb():
     """루리웹 유머 베스트"""
-    soup = fetch("https://m.ruliweb.com/best/humor_only")
+    soup = fetch("https://m.ruliweb.com/best/humor_only", headers=RULIWEB_HEADERS)
     if not soup:
         return []
 
@@ -217,10 +253,126 @@ def get_ruliweb():
     return items[:50]
 
 
+def get_dcinside():
+    """디시인사이드 베스트 게시물"""
+    soup = fetch("https://m.dcinside.com/board/dcbest", headers=PC_HEADERS)
+    if not soup:
+        return []
+
+    NOTICE_NOS = {"30638"}  # 실시간베스트 갤러리 이용 안내 공지
+
+    items = []
+    seen = set()
+    rank = 1
+
+    for tr in soup.select("tr"):
+        ub = tr.select_one(".ub-word")
+        if not ub:
+            continue
+
+        title = ub.get_text(strip=True)
+        # 댓글 수 [N] 또는 [N/N] 제거
+        title = re.sub(r'\[\d+(?:/\d+)?\]\s*$', '', title).strip()
+
+        if not title or len(title) < 3 or title in seen:
+            continue
+
+        # /board/view/ 링크만
+        a = tr.find("a", href=re.compile(r'/board/view/'))
+        if not a:
+            continue
+        href = a.get("href", "")
+
+        # 공지 게시물 제외
+        no_match = re.search(r'no=(\d+)', href)
+        if no_match and no_match.group(1) in NOTICE_NOS:
+            continue
+
+        if not href.startswith("http"):
+            href = "https://m.dcinside.com" + href
+
+        seen.add(title)
+        items.append({"rank": rank, "title": title, "url": href})
+        rank += 1
+        if rank > 50:
+            break
+
+    return items[:50]
+
+
+def get_theqoo():
+    """더쿠 HOT 게시글"""
+    soup = fetch("https://theqoo.net/hot?filter_mode=normal", headers=PC_HEADERS)
+    if not soup:
+        return []
+
+    NOTICE_IDS = {"3516074637", "3176100535", "2984500576", "1383792790"}
+
+    items = []
+    seen = set()
+    rank = 1
+
+    # td.title 안의 a 태그만 — 댓글 수 앵커(#) 제외
+    for a in soup.select("td.title a[href]"):
+        href = a.get("href", "")
+        # 댓글 앵커 링크 및 이벤트/카테고리 제외
+        if "#" in href or not re.match(r'^/hot/\d+', href):
+            continue
+        # 공지 ID 제외
+        post_id = re.search(r'/hot/(\d+)', href)
+        if post_id and post_id.group(1) in NOTICE_IDS:
+            continue
+
+        title = a.get_text(strip=True)
+        # 숫자만인 텍스트(조회수 등) 제외
+        if not title or len(title) < 3 or title.isdigit() or title in seen:
+            continue
+
+        href = "https://theqoo.net" + href.split("?")[0]
+        seen.add(title)
+        items.append({"rank": rank, "title": title, "url": href})
+        rank += 1
+        if rank > 50:
+            break
+
+    return items[:50]
+
+
+def get_mlbpark():
+    """MLB파크 불펜 게시글"""
+    soup = fetch("https://mlbpark.donga.com/mp/b.php?b=bullpen", headers=PC_HEADERS)
+    if not soup:
+        return []
+
+    items = []
+    seen = set()
+    rank = 1
+
+    for a in soup.select("div.title a[href*='b=bullpen'][href*='id=']"):
+        href = a.get("href", "")
+        title = re.sub(r'\[\d+\]\s*$', '', a.get_text(strip=True)).strip()
+
+        if not title or len(title) < 3 or title in seen:
+            continue
+
+        if not href.startswith("http"):
+            href = "https://mlbpark.donga.com" + href
+
+        seen.add(title)
+        items.append({"rank": rank, "title": title, "url": href})
+        rank += 1
+        if rank > 50:
+            break
+
+    return items[:50]
+
+
 SCRAPERS = {
     "inven": get_inven,
     "bobaedream": get_bobaedream,
-    "fmkorea": get_fmkorea,
     "dogdrip": get_dogdrip,
     "ruliweb": get_ruliweb,
+    "theqoo": get_theqoo,
+    "dcinside": get_dcinside,
+    "mlbpark": get_mlbpark,
 }

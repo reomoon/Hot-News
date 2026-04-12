@@ -6,31 +6,41 @@ const PAGE_SIZE = 20;
 const state = {
   community: { source: 'bobaedream', cache: {}, shown: {} },
   news:      { source: 'ent',        cache: {}, shown: {} },
-  section:   'community',
+  hotdeal:   { source: 'ppomppu',    cache: {}, shown: {} },
+  section:   'news',
 };
 
 // ===== DOM =====
 const $ = id => document.getElementById(id);
-const communityList     = $('community-list');
-const newsList          = $('news-list');
-const communitySentinel = $('community-sentinel');
-const newsSentinel      = $('news-sentinel');
-const updateTime        = $('update-time');
-const refreshBtn        = $('refreshBtn');
+const containers = {
+  community: $('community-list'),
+  news:      $('news-list'),
+  hotdeal:   $('hotdeal-list'),
+};
+const sentinels = {
+  community: $('community-sentinel'),
+  news:      $('news-sentinel'),
+  hotdeal:   $('hotdeal-sentinel'),
+};
+const updateTime = $('update-time');
+const refreshBtn = $('refreshBtn');
 
 // ===== 무한 스크롤 (IntersectionObserver) =====
 const observer = new IntersectionObserver(entries => {
   entries.forEach(entry => {
     if (!entry.isIntersecting) return;
-    const type = entry.target.id === 'community-sentinel' ? 'community' : 'news';
+    const type = entry.target.dataset.section;
+    if (type !== state.section) return;
     loadMore(type);
   });
-}, { rootMargin: '0px 0px 200px 0px' });
+}, { rootMargin: '0px 0px 300px 0px' });
 
-observer.observe(communitySentinel);
-observer.observe(newsSentinel);
+Object.entries(sentinels).forEach(([type, el]) => {
+  el.dataset.section = type;
+  observer.observe(el);
+});
 
-// ===== 탭 이벤트 =====
+// ===== 메인 탭 이벤트 =====
 document.querySelectorAll('.main-tab').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.main-tab').forEach(b => b.classList.remove('active'));
@@ -42,23 +52,16 @@ document.querySelectorAll('.main-tab').forEach(btn => {
   });
 });
 
-document.querySelectorAll('#community-section .sub-tab').forEach(btn => {
-  btn.addEventListener('click', () => {
-    if (btn.dataset.source === state.community.source) return;
-    document.querySelectorAll('#community-section .sub-tab').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    state.community.source = btn.dataset.source;
-    fetchAndRender('community', btn.dataset.source);
-  });
-});
-
-document.querySelectorAll('#news-section .sub-tab').forEach(btn => {
-  btn.addEventListener('click', () => {
-    if (btn.dataset.source === state.news.source) return;
-    document.querySelectorAll('#news-section .sub-tab').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    state.news.source = btn.dataset.source;
-    fetchAndRender('news', btn.dataset.source);
+// ===== 서브 탭 이벤트 (공통) =====
+['community', 'news', 'hotdeal'].forEach(type => {
+  document.querySelectorAll(`#${type}-section .sub-tab`).forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (btn.dataset.source === state[type].source) return;
+      document.querySelectorAll(`#${type}-section .sub-tab`).forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      state[type].source = btn.dataset.source;
+      fetchAndRender(type, btn.dataset.source);
+    });
   });
 });
 
@@ -101,8 +104,7 @@ function renderList(container, items) {
     container.innerHTML = '<p class="empty-msg">데이터를 불러올 수 없습니다.</p>';
     return;
   }
-  const slice = items.slice(0, PAGE_SIZE);
-  container.innerHTML = slice.map(makeItemHtml).join('');
+  container.innerHTML = items.slice(0, PAGE_SIZE).map(makeItemHtml).join('');
 }
 
 // ===== 추가 로드 (무한 스크롤) =====
@@ -113,19 +115,24 @@ function loadMore(type) {
   if (!allItems) return;
 
   const shown = st.shown[source] || PAGE_SIZE;
-  if (shown >= allItems.length) return;  // 더 이상 없음
+  if (shown >= allItems.length) return;
 
   const next = Math.min(shown + PAGE_SIZE, allItems.length);
-  const container = type === 'community' ? communityList : newsList;
   const newHtml = allItems.slice(shown, next).map(makeItemHtml).join('');
-  container.insertAdjacentHTML('beforeend', newHtml);
+  containers[type].insertAdjacentHTML('beforeend', newHtml);
   st.shown[source] = next;
 }
 
 // ===== API 호출 =====
+const ENDPOINTS = {
+  community: s => `/api/community/${s}`,
+  news:      s => `/api/news/${s}`,
+  hotdeal:   s => `/api/hotdeal/${s}`,
+};
+
 async function fetchAndRender(type, source) {
   const st = state[type];
-  const container = type === 'community' ? communityList : newsList;
+  const container = containers[type];
 
   if (st.cache[source]) {
     st.shown[source] = PAGE_SIZE;
@@ -135,12 +142,9 @@ async function fetchAndRender(type, source) {
   }
 
   showSkeleton(container);
-  const endpoint = type === 'community'
-    ? `/api/community/${source}`
-    : `/api/news/${source}`;
 
   try {
-    const res = await fetch(endpoint);
+    const res = await fetch(ENDPOINTS[type](source));
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     const items = data.items || [];
@@ -155,8 +159,7 @@ async function fetchAndRender(type, source) {
 
 function loadCurrent() {
   const type = state.section;
-  const st = state[type];
-  fetchAndRender(type, st.source);
+  fetchAndRender(type, state[type].source);
 }
 
 function setUpdateTime() {
@@ -174,5 +177,125 @@ function escHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+// ===== 탭 순서: localStorage =====
+const TAB_ORDER_KEY = s => `tabOrder:${s}`;
+
+function applyTabOrder(section) {
+  const saved = localStorage.getItem(TAB_ORDER_KEY(section));
+  if (!saved) return;
+  let order;
+  try { order = JSON.parse(saved); } catch { return; }
+
+  const nav = document.querySelector(`#${section}-section .sub-tabs`);
+  if (!nav) return;
+
+  order.forEach(source => {
+    const btn = nav.querySelector(`.sub-tab[data-source="${source}"]`);
+    if (btn) nav.appendChild(btn);
+  });
+
+  // 첫 번째 탭을 해당 섹션의 기본 소스로 설정
+  const first = nav.querySelector('.sub-tab');
+  if (first) state[section].source = first.dataset.source;
+}
+
+['news', 'community', 'hotdeal'].forEach(applyTabOrder);
+
+// 저장된 순서에 따라 active 클래스도 동기화
+['news', 'community', 'hotdeal'].forEach(section => {
+  const nav = document.querySelector(`#${section}-section .sub-tabs`);
+  if (!nav) return;
+  nav.querySelectorAll('.sub-tab').forEach(b => b.classList.remove('active'));
+  const first = nav.querySelector('.sub-tab');
+  if (first) first.classList.add('active');
+});
+
+// ===== 바텀시트 =====
+const tabSheet = $('tabSheet');
+let _sheetSection = null;
+
+function openTabSheet(section) {
+  _sheetSection = section;
+  const nav = document.querySelector(`#${section}-section .sub-tabs`);
+  const list = $('tabSheetList');
+
+  list.innerHTML = '';
+  nav.querySelectorAll('.sub-tab').forEach(btn => {
+    const li = document.createElement('li');
+    li.className = 'sheet-item';
+    li.dataset.source = btn.dataset.source;
+    li.innerHTML = `<span class="drag-handle" aria-hidden="true">⠿</span>
+      <span class="sheet-item-label">${btn.textContent.trim()}</span>`;
+    list.appendChild(li);
+  });
+
+  tabSheet.hidden = false;
+  requestAnimationFrame(() => tabSheet.classList.add('open'));
+  initSheetDrag(list);
+}
+
+function closeTabSheet() {
+  tabSheet.classList.remove('open');
+  tabSheet.addEventListener('transitionend', () => { tabSheet.hidden = true; }, { once: true });
+}
+
+$('tabSheetClose').addEventListener('click', closeTabSheet);
+$('tabSheet').addEventListener('click', e => { if (e.target === tabSheet) closeTabSheet(); });
+
+document.querySelectorAll('.edit-tabs-btn').forEach(btn => {
+  btn.addEventListener('click', () => openTabSheet(btn.dataset.section));
+});
+
+$('tabSheetDone').addEventListener('click', () => {
+  const section = _sheetSection;
+  const order = [...$('tabSheetList').querySelectorAll('.sheet-item')].map(li => li.dataset.source);
+
+  localStorage.setItem(TAB_ORDER_KEY(section), JSON.stringify(order));
+
+  // 실제 탭 DOM 재정렬
+  const nav = document.querySelector(`#${section}-section .sub-tabs`);
+  order.forEach(source => {
+    const btn = nav.querySelector(`.sub-tab[data-source="${source}"]`);
+    if (btn) nav.appendChild(btn);
+  });
+
+  closeTabSheet();
+});
+
+// ===== 드래그 정렬 (Pointer Events) =====
+function initSheetDrag(list) {
+  let dragged = null;
+
+  list.addEventListener('pointerdown', e => {
+    const item = e.target.closest('.sheet-item');
+    if (!item) return;
+    dragged = item;
+    item.setPointerCapture(e.pointerId);
+    item.classList.add('dragging');
+  });
+
+  list.addEventListener('pointermove', e => {
+    if (!dragged) return;
+    const under = document.elementFromPoint(e.clientX, e.clientY);
+    const target = under?.closest('.sheet-item');
+    if (target && target !== dragged) {
+      const rect = target.getBoundingClientRect();
+      if (e.clientY < rect.top + rect.height / 2) {
+        list.insertBefore(dragged, target);
+      } else {
+        list.insertBefore(dragged, target.nextSibling);
+      }
+    }
+  });
+
+  const endDrag = () => {
+    if (!dragged) return;
+    dragged.classList.remove('dragging');
+    dragged = null;
+  };
+  list.addEventListener('pointerup', endDrag);
+  list.addEventListener('pointercancel', endDrag);
+}
+
 // ===== 초기 로드 =====
-fetchAndRender('community', state.community.source);
+fetchAndRender('news', state.news.source);
