@@ -85,10 +85,9 @@ def get_naver_section(section_url):
             continue
 
         title_el = a.select_one(".sa_text_strong, .cluster_text_headline, .tit")
-        if title_el:
-            title = title_el.get_text(strip=True)
-        else:
-            title = a.get_text(strip=True)
+        if not title_el:
+            continue
+        title = title_el.get_text(strip=True)
 
         if not title or len(title) < 6 or title in seen:
             continue

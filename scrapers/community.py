@@ -160,9 +160,9 @@ def get_bobaedream():
     return items[:50]
 
 
-def get_fmkorea():
-    """에펨코리아 베스트2"""
-    soup = fetch("https://m.fmkorea.com/best2", headers=PC_HEADERS)
+def get_todayhumor():
+    """오늘의유머 베스트오브베스트"""
+    soup = fetch("https://www.todayhumor.co.kr/board/list.php?table=bestofbest")
     if not soup:
         return []
 
@@ -170,21 +170,20 @@ def get_fmkorea():
     seen = set()
     rank = 1
 
-    # div.li 안의 h3.title에서 제목 추출
-    for div in soup.select("div.li"):
-        h3 = div.select_one("h3.title")
-        if not h3:
-            continue
-        title = h3.get_text(strip=True)
-        title = re.sub(r'\[\d+\]', '', title).strip()
+    for a in soup.find_all("a", href=re.compile(r'view\.php\?table=bestofbest&no=\d+')):
+        href = a.get("href", "")
+        title = a.get_text(strip=True)
+        title = re.sub(r'\[\d+\]\s*$', '', title).strip()
+        title = re.sub(r'\s+', ' ', title)
 
-        if not title or len(title) < 3 or title in seen:
+        # 숫자만인 링크(게시글 번호 링크) 제외
+        if not title or title.isdigit() or len(title) < 3 or title in seen:
             continue
 
-        a = div.find("a", href=re.compile(r'^/best2/\d+$'))
-        if not a:
+        no_match = re.search(r'no=(\d+)', href)
+        if not no_match:
             continue
-        href = "https://m.fmkorea.com" + a.get("href", "")
+        href = f"https://www.todayhumor.co.kr/board/view.php?table=bestofbest&no={no_match.group(1)}"
 
         seen.add(title)
         items.append({"rank": rank, "title": title, "url": href})
@@ -397,7 +396,7 @@ def get_mlbpark():
 SCRAPERS = {
     "inven": get_inven,
     "bobaedream": get_bobaedream,
-    "fmkorea": get_fmkorea,
+    "todayhumor": get_todayhumor,
     "ruliweb": get_ruliweb,
     "theqoo": get_theqoo,
     "dcinside": get_dcinside,
