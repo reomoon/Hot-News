@@ -111,7 +111,7 @@ body {
   border: none;
   background: none;
   color: var(--text-muted);
-  font-size: 0.88rem;
+  font-size: 15px;
   font-weight: 600;
   cursor: pointer;
   position: relative;
@@ -203,7 +203,7 @@ body {
   border: none;
   background: none;
   color: var(--text-muted);
-  font-size: 0.8rem;
+  font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
@@ -285,7 +285,7 @@ body {
 /* 게시글 제목 */
 .post-title {
   flex: 1;
-  font-size: 0.875rem;
+  font-size: 15px;
   line-height: 1.45;
   color: var(--text);
   word-break: keep-all;
