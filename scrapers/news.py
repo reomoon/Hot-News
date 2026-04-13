@@ -138,7 +138,15 @@ def get_naver_section(section_url):
 
 def get_ruliweb_game():
     """루리웹 게임 뉴스"""
-    soup = fetch("https://m.ruliweb.com/news/523", headers=MOBILE_HEADERS)
+    urls = [
+        "https://m.ruliweb.com/news/523",
+        "https://m.ruliweb.com/news/game",
+    ]
+    soup = None
+    for url in urls:
+        soup = fetch(url, headers=MOBILE_HEADERS)
+        if soup:
+            break
     if not soup:
         return []
 
@@ -147,7 +155,12 @@ def get_ruliweb_game():
     rank = 1
 
     for li in soup.select("li.list_item"):
-        a = li.find("a", href=lambda h: h and "bbs.ruliweb.com" in h and "/read/" in h)
+        a = None
+        for tag in li.find_all("a", href=True):
+            h = tag.get("href", "")
+            if "bbs.ruliweb.com" in h and "/read/" in h:
+                a = tag
+                break
         if not a:
             continue
         href = a.get("href", "")

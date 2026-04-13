@@ -20,7 +20,11 @@ def get_cached(key, scraper_fn):
         entry = _cache.get(key)
         if entry and (now - entry["ts"]) < CACHE_TTL:
             return entry["data"]
-    data = scraper_fn()
+    try:
+        data = scraper_fn()
+    except Exception as e:
+        print(f"[scraper error] {key}: {e}")
+        data = []
     with _cache_lock:
         _cache[key] = {"data": data, "ts": time.time()}
     return data

@@ -386,40 +386,79 @@ def get_theqoo():
 
 
 def get_ppomppu_hot():
-    """뽐뿌 커뮤니티 핫게시물"""
-    soup = fetch(
-        "https://ppomppu.co.kr/hot.php",
-        headers={**PC_HEADERS, "Referer": "https://ppomppu.co.kr/"},
-    )
-    if not soup:
-        return []
-
+    """뽐뿌 커뮤니티 핫게시물 (hot.php + 자유게시판 인기글 합산)"""
+    PPOMPPU_HEADERS = {**PC_HEADERS, "Referer": "https://ppomppu.co.kr/"}
     items = []
     seen = set()
-    rank = 1
 
-    for a in soup.find_all("a", href=re.compile(r'/zboard/zboard\.php\?id=\w+&no=\d+')):
-        href = a.get("href", "")
+    # 광고성 게시판 ID 제외
+    AD_BOARDS = {"pmarket", "pmarket2", "pmarket3", "pmarket7", "pmarket8",
+                 "card_market", "experience", "event2", "coupon", "wcoupon", "guin"}
 
-        # a 태그 내 텍스트만 추출 (img alt 제외)
-        title = "".join(
-            node for node in a.strings
-            if node.strip() and node.strip() not in ("hot", "pop", "HOT", "POP")
-        ).strip()
-        # 앞쪽 아이콘 잔여 텍스트 제거
-        title = re.sub(r'^\s*\[?(hot|pop|HOT|POP)\]?\s*', '', title, flags=re.IGNORECASE).strip()
+    def _extract_from_view_links(soup):
+        result = []
+        for a in soup.find_all("a", href=re.compile(r'/zboard/view\.php\?id=\w+&no=\d+')):
+            href = a.get("href", "")
+            # 광고 게시판 제외
+            board_match = re.search(r'[?&]id=(\w+)', href)
+            if board_match and board_match.group(1) in AD_BOARDS:
+                continue
+            title = "".join(
+                node for node in a.strings
+                if node.strip() and node.strip().lower() not in ("hot", "pop", "new")
+            ).strip()
+            title = re.sub(r'^\s*\[?(hot|pop|new|ad)\]?\s*', '', title, flags=re.IGNORECASE).strip()
+            title = re.sub(r'\s*\d+$', '', title).strip()
+            if not title or len(title) < 3:
+                continue
+            # AD 접두사 광고 제외
+            if re.match(r'^AD\s', title, re.IGNORECASE):
+                continue
+            if not href.startswith("http"):
+                href = "https://ppomppu.co.kr" + href
+            result.append((title, href))
+        return result
 
-        if not title or len(title) < 3 or title in seen:
-            continue
+    def _extract_from_baselist(soup, board_id):
+        result = []
+        for tr in soup.select("tr.baseList"):
+            a = tr.find("a", href=lambda h: h and "view.php" in h and f"id={board_id}" in h)
+            title_el = tr.select_one("td.baseList-space.title") or tr.select_one(".baseList-title")
+            if not a or not title_el:
+                continue
+            title = title_el.get_text(strip=True)
+            title = re.sub(r'\[\d+\]\s*$', '', title).strip()
+            title = re.sub(r'\s*\d+$', '', title).strip()
+            if not title or len(title) < 3:
+                continue
+            href = "https://ppomppu.co.kr/zboard/" + a.get("href", "").split("&&")[0]
+            result.append((title, href))
+        return result
 
-        if not href.startswith("http"):
-            href = "https://ppomppu.co.kr" + href
+    # 1) hot.php — 전체 카테고리 핫글
+    soup1 = fetch("https://ppomppu.co.kr/hot.php", headers=PPOMPPU_HEADERS)
+    if soup1:
+        for title, href in _extract_from_view_links(soup1):
+            if title not in seen:
+                seen.add(title)
+                items.append({"rank": len(items) + 1, "title": title, "url": href})
 
-        seen.add(title)
-        items.append({"rank": rank, "title": title, "url": href})
-        rank += 1
+    # 2) 자유게시판 인기글
+    soup2 = fetch(
+        "https://ppomppu.co.kr/zboard/zboard.php?id=freeboard&hotpop=1",
+        headers=PPOMPPU_HEADERS,
+    )
+    if soup2:
+        for title, href in _extract_from_baselist(soup2, "freeboard"):
+            if title not in seen:
+                seen.add(title)
+                items.append({"rank": len(items) + 1, "title": title, "url": href})
 
-    return items
+    # rank 재정렬
+    for i, item in enumerate(items):
+        item["rank"] = i + 1
+
+    return items[:50]
 
 
 def get_mlbpark():

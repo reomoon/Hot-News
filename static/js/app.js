@@ -67,6 +67,30 @@ document.querySelectorAll('.main-tab').forEach(btn => {
   });
 });
 
+// ===== 로고 클릭 → 홈 (뉴스/연예 탭으로 복귀) =====
+document.querySelector('.logo').addEventListener('click', () => {
+  // 뉴스 메인탭으로
+  document.querySelectorAll('.main-tab').forEach(b => b.classList.remove('active'));
+  const newsTab = document.querySelector('.main-tab[data-section="news"]');
+  newsTab.classList.add('active');
+  state.section = 'news';
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  $('news-section').classList.add('active');
+
+  // 뉴스 첫 번째 서브탭으로
+  const newsSubTabs = document.querySelectorAll('#news-section .sub-tab');
+  newsSubTabs.forEach(b => b.classList.remove('active'));
+  const firstSubTab = newsSubTabs[0];
+  if (firstSubTab) {
+    firstSubTab.classList.add('active');
+    state.news.source = firstSubTab.dataset.source;
+  }
+
+  // 맨 위로 스크롤
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  fetchAndRender('news', state.news.source);
+});
+
 // ===== 새로고침 =====
 refreshBtn.addEventListener('click', () => {
   const type = state.section;
