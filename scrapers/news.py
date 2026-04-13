@@ -186,11 +186,95 @@ def get_naver_it():
     return get_naver_section("https://news.naver.com/breakingnews/section/105/230")
 
 
+def get_nate_sports():
+    """네이트 스포츠 뉴스 일간 랭킹"""
+    today = datetime.now(KST).strftime("%Y%m%d")
+    soup = fetch(f"https://news.nate.com/rank/interest?sc=spo&p=day&date={today}")
+    if not soup:
+        return []
+
+    items = []
+    seen = set()
+    rank = 1
+
+    for a in soup.find_all("a", href=True):
+        href = a.get("href", "")
+        if "nate.com/view/" not in href:
+            continue
+
+        title_el = a.select_one(".tit, .title, strong")
+        if title_el:
+            title = title_el.get_text(strip=True)
+        else:
+            title = a.get_text(separator="\n", strip=True).split("\n")[0].strip()
+
+        if not title or len(title) < 5 or title in seen:
+            continue
+
+        if href.startswith("//"):
+            href = "https:" + href
+        elif not href.startswith("http"):
+            href = "https://news.nate.com" + href
+        href = href.split("?")[0]
+
+        seen.add(title)
+        items.append({"rank": rank, "title": title, "url": href})
+        rank += 1
+        if rank > 50:
+            break
+
+    return items[:50]
+
+
+def _get_newstravel(sec_no):
+    """뉴스트래블 섹션 기사 목록"""
+    soup = fetch(
+        f"https://www.newstravel.co.kr/news/section_list_all.html?sec_no={sec_no}",
+        headers={**PC_HEADERS, "Referer": "https://www.newstravel.co.kr/"},
+    )
+    if not soup:
+        return []
+
+    items = []
+    seen = set()
+    rank = 1
+
+    for a in soup.find_all("a", href=lambda h: h and "article.html?no=" in h):
+        h3 = a.find("h3")
+        title = h3.get_text(strip=True) if h3 else a.get_text(strip=True).split("\n")[0].strip()
+
+        if not title or len(title) < 5 or title in seen:
+            continue
+
+        href = a.get("href", "")
+        if not href.startswith("http"):
+            href = "https://www.newstravel.co.kr" + href
+
+        seen.add(title)
+        items.append({"rank": rank, "title": title, "url": href})
+        rank += 1
+        if rank > 50:
+            break
+
+    return items[:50]
+
+
+def get_newstravel_domestic():
+    return _get_newstravel(9)
+
+
+def get_newstravel_overseas():
+    return _get_newstravel(2)
+
+
 NEWS_SCRAPERS = {
     "ent": get_nate_ent,
     "society": get_naver_society,
     "economy": get_naver_economy,
     "world": get_naver_world,
     "it": get_naver_it,
+    "sports": get_nate_sports,
+    "domestic": get_newstravel_domestic,
+    "overseas": get_newstravel_overseas,
     "game": get_ruliweb_game,
 }

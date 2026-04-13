@@ -74,7 +74,7 @@ _POLITICS_KEYWORDS = {
     '윤석열', '이재명', '한덕수', '이준석', '홍준표',
     '여당', '야당', '여야', '총선', '대선', '지방선거',
     '국정감사', '인사청문회', '개헌', '헌법재판소',
-    '검찰개혁', '사법개혁',
+    '검찰개혁', '사법개혁', '석렬', '정치'
 }
 
 def _is_politics(title: str) -> bool:
@@ -385,6 +385,43 @@ def get_theqoo():
     return items[:50]
 
 
+def get_ppomppu_hot():
+    """뽐뿌 커뮤니티 핫게시물"""
+    soup = fetch(
+        "https://ppomppu.co.kr/hot.php",
+        headers={**PC_HEADERS, "Referer": "https://ppomppu.co.kr/"},
+    )
+    if not soup:
+        return []
+
+    items = []
+    seen = set()
+    rank = 1
+
+    for a in soup.find_all("a", href=re.compile(r'/zboard/zboard\.php\?id=\w+&no=\d+')):
+        href = a.get("href", "")
+
+        # a 태그 내 텍스트만 추출 (img alt 제외)
+        title = "".join(
+            node for node in a.strings
+            if node.strip() and node.strip() not in ("hot", "pop", "HOT", "POP")
+        ).strip()
+        # 앞쪽 아이콘 잔여 텍스트 제거
+        title = re.sub(r'^\s*\[?(hot|pop|HOT|POP)\]?\s*', '', title, flags=re.IGNORECASE).strip()
+
+        if not title or len(title) < 3 or title in seen:
+            continue
+
+        if not href.startswith("http"):
+            href = "https://ppomppu.co.kr" + href
+
+        seen.add(title)
+        items.append({"rank": rank, "title": title, "url": href})
+        rank += 1
+
+    return items
+
+
 def get_mlbpark():
     """MLB파크 불펜 게시글"""
     soup = fetch("https://mlbpark.donga.com/mp/b.php?b=bullpen", headers=PC_HEADERS)
@@ -419,6 +456,7 @@ SCRAPERS = {
     "bobaedream": get_bobaedream,
     "todayhumor": get_todayhumor,
     "ruliweb": get_ruliweb,
+    "ppomppu": get_ppomppu_hot,
     "theqoo": get_theqoo,
     "dcinside": get_dcinside,
     "mlbpark": get_mlbpark,

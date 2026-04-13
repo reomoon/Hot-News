@@ -78,12 +78,9 @@ refreshBtn.addEventListener('click', () => {
   setTimeout(() => refreshBtn.classList.remove('spinning'), 800);
 });
 
-// ===== 스켈레톤 =====
+// ===== 로딩 스피너 =====
 function showSkeleton(container) {
-  container.innerHTML = `
-    <div class="skeleton-list">
-      ${Array(10).fill('<div class="skeleton-item"></div>').join('')}
-    </div>`;
+  container.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div></div>`;
 }
 
 // ===== 아이템 HTML 생성 =====
@@ -306,6 +303,175 @@ function initSheetDrag(list) {
   list.addEventListener('pointerup', endDrag);
   list.addEventListener('pointercancel', endDrag);
 }
+
+// ===== 서브탭 스와이프 애니메이션 (iOS 스타일) =====
+['news', 'community', 'hotdeal'].forEach(type => {
+  const container = containers[type];
+
+  // 클리핑 래퍼
+  const wrapper = document.createElement('div');
+  wrapper.style.cssText = 'overflow:hidden;position:relative;';
+  container.parentNode.insertBefore(wrapper, container);
+  wrapper.appendChild(container);
+  container.style.willChange = 'transform';
+
+  let startX = 0, startY = 0, startTime = 0;
+  let isHorizontal = null, animating = false, blocked = false;
+  let ghost = null, swipeDir = 0;
+  const section = $(`${type}-section`);
+  const EASING = 'cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+
+  function getTabs() {
+    return [...document.querySelectorAll(`#${type}-section .sub-tab`)];
+  }
+  function getNextTab(dir) {
+    const tabs = getTabs();
+    return tabs[tabs.findIndex(t => t.dataset.source === state[type].source) + dir] || null;
+  }
+  function removeGhost() {
+    if (ghost) { ghost.remove(); ghost = null; }
+  }
+
+  const subTabsBar = section.querySelector('.sub-tabs-bar');
+
+  section.addEventListener('touchstart', e => {
+    if (animating) return;
+    // 서브탭 바는 자체 좌우 스크롤 전용 — 스와이프 제스처 완전 차단
+    if (subTabsBar && subTabsBar.contains(e.target)) {
+      blocked = true;
+      return;
+    }
+    blocked = false;
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    startTime = e.timeStamp;
+    isHorizontal = null;
+    removeGhost();
+    container.style.transition = 'none';
+  }, { passive: true });
+
+  section.addEventListener('touchmove', e => {
+    if (animating || blocked) return;
+    const dx = e.touches[0].clientX - startX;
+    const dy = e.touches[0].clientY - startY;
+
+    if (isHorizontal === null) {
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+      isHorizontal = Math.abs(dx) > Math.abs(dy);
+      if (isHorizontal) {
+        swipeDir = dx < 0 ? 1 : -1;
+        if (getNextTab(swipeDir)) {
+          // 다음 패널 미리 생성 (손가락 따라 같이 움직임)
+          ghost = document.createElement('div');
+          ghost.className = 'list-container';
+          ghost.style.cssText = `position:absolute;top:0;left:0;width:100%;will-change:transform;` +
+            `transform:translateX(${swipeDir > 0 ? '100%' : '-100%'});`;
+          ghost.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div></div>`;
+          wrapper.appendChild(ghost);
+        }
+      }
+    }
+    if (!isHorizontal) return;
+    e.preventDefault();
+
+    const tabs = getTabs();
+    const idx = tabs.findIndex(t => t.dataset.source === state[type].source);
+    const atEdge = (dx > 0 && idx === 0) || (dx < 0 && idx === tabs.length - 1);
+    const t = atEdge ? dx * 0.15 : dx;
+
+    // 현재·다음 패널이 함께 이동
+    container.style.transform = `translateX(${t}px)`;
+    if (ghost) {
+      ghost.style.transition = 'none';
+      ghost.style.transform = `translateX(calc(${swipeDir > 0 ? '100%' : '-100%'} + ${t}px))`;
+    }
+  }, { passive: false });
+
+  section.addEventListener('touchend', e => {
+    if (blocked) return;
+    if (animating || isHorizontal !== true) {
+      removeGhost();
+      container.style.transition = `transform 300ms ${EASING}`;
+      container.style.transform = 'translateX(0)';
+      return;
+    }
+
+    const dx = e.changedTouches[0].clientX - startX;
+    const velocity = Math.abs(dx) / Math.max(1, e.timeStamp - startTime); // px/ms
+    const shouldCommit = ghost && (Math.abs(dx) > 50 || velocity > 0.35);
+
+    if (shouldCommit) {
+      animating = true;
+      const w = container.offsetWidth;
+      // 빠를수록 짧게
+      const dur = Math.max(200, Math.min(340, 320 - velocity * 120)) | 0;
+
+      container.style.transition = `transform ${dur}ms ${EASING}`;
+      container.style.transform = `translateX(${dx < 0 ? -w : w}px)`;
+      ghost.style.transition = `transform ${dur}ms ${EASING}`;
+      ghost.style.transform = 'translateX(0)';
+
+      container.addEventListener('transitionend', () => {
+        // 위치 초기화 후 탭 전환
+        container.style.transition = 'none';
+        container.style.transform = 'translateX(0)';
+        container.innerHTML = '';
+        removeGhost();
+        const nextTab = getNextTab(swipeDir);
+        if (nextTab) {
+          nextTab.click();
+          nextTab.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+        }
+        animating = false;
+      }, { once: true });
+    } else {
+      // 스냅백
+      removeGhost();
+      container.style.transition = `transform 300ms ${EASING}`;
+      container.style.transform = 'translateX(0)';
+    }
+  }, { passive: true });
+});
+
+// ===== 서울 날씨 + 미세먼지 =====
+const WMO_ICON = {
+  0:'☀️', 1:'🌤', 2:'⛅', 3:'☁️',
+  45:'🌫', 48:'🌫',
+  51:'🌦', 53:'🌦', 55:'🌧',
+  61:'🌧', 63:'🌧', 65:'🌧',
+  71:'🌨', 73:'🌨', 75:'🌨', 77:'🌨',
+  80:'🌦', 81:'🌧', 82:'🌧',
+  95:'⛈', 96:'⛈', 99:'⛈',
+};
+
+async function loadWeather() {
+  try {
+    const [wRes, aRes] = await Promise.all([
+      fetch('https://api.open-meteo.com/v1/forecast?latitude=37.5665&longitude=126.9780&current=temperature_2m,weathercode&timezone=Asia/Seoul'),
+      fetch('https://air-quality-api.open-meteo.com/v1/air-quality?latitude=37.5665&longitude=126.9780&current=pm10&timezone=Asia/Seoul'),
+    ]);
+    const w = await wRes.json();
+    const a = await aRes.json();
+
+    const temp  = Math.round(w.current.temperature_2m);
+    const code  = w.current.weathercode;
+    const pm10  = Math.round(a.current.pm10);
+    const icon  = WMO_ICON[code] ?? '🌡';
+
+    const [dustLabel, dustColor] =
+      pm10 <= 30  ? ['미세 좋음',    '#4caf50'] :
+      pm10 <= 80  ? ['미세 보통',    '#ff9800'] :
+      pm10 <= 150 ? ['미세 나쁨',    '#f44336'] :
+                    ['미세 매우나쁨','#9c27b0'];
+
+    const el = $('weatherInfo');
+    el.innerHTML =
+      `<span class="weather-temp">${icon} ${temp}°</span>` +
+      `<span class="weather-dust" style="color:${dustColor}">${dustLabel}</span>`;
+  } catch { /* 조용히 실패 */ }
+}
+
+loadWeather();
 
 // ===== 자동 갱신: 10분마다 현재 탭 새로고침 =====
 setInterval(() => {
