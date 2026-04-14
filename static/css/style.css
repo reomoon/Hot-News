@@ -60,7 +60,7 @@ body {
   letter-spacing: -0.5px;
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 1px; /* 로고 사이 간격 */
   cursor: pointer;
   -webkit-user-select: none;
   user-select: none;
@@ -88,6 +88,7 @@ body {
   font-weight: 600;
   color: var(--text-dim);
   letter-spacing: -0.3px;
+  white-space: nowrap;
 }
 
 .weather-dust {

@@ -10,8 +10,8 @@ app = Flask(__name__)
 # 캐시: 주기적으로 갱신
 _cache = {}
 _cache_lock = threading.Lock()
-CACHE_TTL = 600  # 10분 (서버 인스턴스 메모리 캐시)
-CDN_TTL = 600    # 10분 (Vercel CDN 엣지 캐시 - Cold Start 우회)
+CACHE_TTL = 3600  # 10분 (서버 인스턴스 메모리 캐시)
+CDN_TTL = 3600    # 10분 (Vercel CDN 엣지 캐시 - Cold Start 우회)
 
 
 def get_cached(key, scraper_fn):
@@ -24,9 +24,14 @@ def get_cached(key, scraper_fn):
         data = scraper_fn()
     except Exception as e:
         print(f"[scraper error] {key}: {e}")
-        data = []
+        data = None
     with _cache_lock:
-        _cache[key] = {"data": data, "ts": time.time()}
+        if data:
+            _cache[key] = {"data": data, "ts": time.time()}
+        elif entry:
+            return entry["data"]  # 실패 시 이전 캐시 유지
+        else:
+            return []
     return data
 
 
