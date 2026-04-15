@@ -41,10 +41,10 @@ PC_HEADERS = {
 }
 
 RULIWEB_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
     "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
-    "Referer": "https://m.ruliweb.com/",
+    "Referer": "https://bbs.ruliweb.com/",
 }
 
 DOGDRIP_HEADERS = {
@@ -279,9 +279,8 @@ def get_ruliweb():
     items = []
     seen = set()
 
-    # 동시 2페이지로 제한 (3개 동시 요청 시 봇 차단 가능성)
     soups = fetch_pages([
-        f"https://m.ruliweb.com/best/humor_only?page={page}"
+        f"https://bbs.ruliweb.com/best/humor_only?page={page}"
         for page in range(1, 3)
     ], headers=RULIWEB_HEADERS, timeout=12)
 
@@ -293,7 +292,7 @@ def get_ruliweb():
             if not a:
                 continue
             href = a.get("href", "")
-            if "ruliweb.com/best/" not in href and not href.startswith("/best/"):
+            if "ruliweb.com" not in href and not href.startswith("/best/") and not href.startswith("/"):
                 continue
             title = ""
             for node in a.children:
@@ -304,11 +303,12 @@ def get_ruliweb():
                 else:
                     title += str(node).strip()
             title = title.strip()
+            title = re.sub(r'^\d+', '', title).strip()  # 앞에 붙는 순위 숫자 제거
             title = strip_comment_count(title)
             if not title or len(title) < 3 or title in seen:
                 continue
             if not href.startswith("http"):
-                href = "https://m.ruliweb.com" + href
+                href = "https://bbs.ruliweb.com" + href
             seen.add(title)
             items.append({"rank": len(items) + 1, "title": title, "url": href})
         if len(items) >= TARGET:
