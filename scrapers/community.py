@@ -1,6 +1,10 @@
 import requests
 import re
 from bs4 import BeautifulSoup, Tag
+from concurrent.futures import ThreadPoolExecutor
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
 try:
     import cloudscraper
     _scraper = cloudscraper.create_scraper(
@@ -8,6 +12,13 @@ try:
     )
 except Exception:
     _scraper = None
+
+# 세션 + 자동 재시도 (서버 오류 시 2회)
+_session = requests.Session()
+_retry = Retry(total=2, backoff_factor=0.3, status_forcelist=[500, 502, 503, 504])
+_adapter = HTTPAdapter(max_retries=_retry, pool_connections=10, pool_maxsize=20)
+_session.mount("http://", _adapter)
+_session.mount("https://", _adapter)
 
 MOBILE_HEADERS = {
     "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
@@ -37,10 +48,10 @@ DOGDRIP_HEADERS = {
 }
 
 
-def fetch(url, headers=None, timeout=10):
+def fetch(url, headers=None, timeout=8):
     try:
         h = headers or MOBILE_HEADERS
-        r = requests.get(url, headers=h, timeout=timeout)
+        r = _session.get(url, headers=h, timeout=timeout)
         r.raise_for_status()
         return BeautifulSoup(r.content, "lxml")
     except Exception as e:
@@ -59,6 +70,16 @@ def fetch_cf(url, timeout=15):
     except Exception as e:
         print(f"[fetch_cf error] {url}: {e}")
         return None
+
+
+def fetch_pages(urls, headers=None, timeout=8, use_cf=False):
+    """URL 목록을 병렬로 가져오기 (순서 보존)"""
+    def _get(url):
+        if use_cf:
+            return fetch_cf(url, timeout=timeout)
+        return fetch(url, headers=headers, timeout=timeout)
+    with ThreadPoolExecutor(max_workers=min(len(urls), 5)) as executor:
+        return list(executor.map(_get, urls))
 
 
 def strip_comment_count(text):
@@ -89,16 +110,17 @@ def get_inven():
     items = []
     seen_urls = set()
 
-    for page in range(1, 6):
-        url = f"https://m.inven.co.kr/board/webzine/2097/?iskin=&gid=0&sk=&sv=&category=0&p={page}"
-        soup = fetch(url)
-        if not soup:
-            break
+    soups = fetch_pages([
+        f"https://m.inven.co.kr/board/webzine/2097/?iskin=&gid=0&sk=&sv=&category=0&p={page}"
+        for page in range(1, 4)
+    ])
 
-        page_found = 0
+    for page_num, soup in enumerate(soups, 1):
+        if not soup:
+            continue
 
         # 1) 오늘의화제 top10 (1페이지에만 존재)
-        if page == 1:
+        if page_num == 1:
             issue = soup.find(id="open-issue-topic")
             if issue:
                 content = issue.select_one('div.content[data-tab="0"]') or issue
@@ -118,7 +140,6 @@ def get_inven():
                     if href not in seen_urls:
                         seen_urls.add(href)
                         items.append({"rank": rank, "title": title, "category": cate, "url": href})
-                        page_found += 1
 
         # 2) 게시판 목록 (contentLink 구조)
         for a in soup.select("a.contentLink[href]"):
@@ -137,11 +158,8 @@ def get_inven():
                 continue
             seen_urls.add(href)
             items.append({"rank": len(items) + 1, "title": title, "category": cate, "url": href})
-            page_found += 1
 
         if len(items) >= TARGET:
-            break
-        if page_found == 0:
             break
 
     for i, item in enumerate(items):
@@ -155,13 +173,14 @@ def get_bobaedream():
     items = []
     seen = set()
 
-    for page in range(1, 6):
-        url = f"https://m.bobaedream.co.kr/board/new_writing/best?page={page}"
-        soup = fetch(url)
-        if not soup:
-            break
+    soups = fetch_pages([
+        f"https://m.bobaedream.co.kr/board/new_writing/best?page={page}"
+        for page in range(1, 4)
+    ])
 
-        page_found = 0
+    for soup in soups:
+        if not soup:
+            continue
         for a in soup.find_all("a", href=True):
             href = a.get("href", "")
             if "/bbs_view/" not in href:
@@ -178,11 +197,7 @@ def get_bobaedream():
                 href = "https://m.bobaedream.co.kr" + href
             seen.add(title)
             items.append({"rank": len(items) + 1, "title": title, "url": href})
-            page_found += 1
-
         if len(items) >= TARGET:
-            break
-        if page_found == 0:
             break
 
     return items[:TARGET]
@@ -193,13 +208,14 @@ def get_todayhumor():
     items = []
     seen = set()
 
-    for page in range(1, 6):
-        url = f"https://www.todayhumor.co.kr/board/list.php?table=bestofbest&page={page}"
-        soup = fetch(url)
-        if not soup:
-            break
+    soups = fetch_pages([
+        f"https://www.todayhumor.co.kr/board/list.php?table=bestofbest&page={page}"
+        for page in range(1, 4)
+    ])
 
-        page_found = 0
+    for soup in soups:
+        if not soup:
+            continue
         for a in soup.find_all("a", href=re.compile(r'view\.php\?table=bestofbest&no=\d+')):
             href = a.get("href", "")
             title = a.get_text(strip=True)
@@ -213,11 +229,7 @@ def get_todayhumor():
             href = f"https://www.todayhumor.co.kr/board/view.php?table=bestofbest&no={no_match.group(1)}"
             seen.add(title)
             items.append({"rank": len(items) + 1, "title": title, "url": href})
-            page_found += 1
-
         if len(items) >= TARGET:
-            break
-        if page_found == 0:
             break
 
     return items[:TARGET]
@@ -228,13 +240,15 @@ def get_dogdrip():
     items = []
     seen = set()
 
-    for page in range(1, 6):
-        url = f"https://www.dogdrip.net/dogdrip?page={page}"
-        soup = fetch_cf(url)
-        if not soup:
-            break
+    # CF 우회는 느리므로 2페이지만 병렬 요청
+    soups = fetch_pages([
+        f"https://www.dogdrip.net/dogdrip?page={page}"
+        for page in range(1, 3)
+    ], use_cf=True)
 
-        page_found = 0
+    for soup in soups:
+        if not soup:
+            continue
         for a in soup.find_all("a", href=True):
             href = a.get("href", "")
             if not re.match(r'^/dogdrip/\d+', href):
@@ -247,11 +261,7 @@ def get_dogdrip():
             href = "https://www.dogdrip.net" + href.split("?")[0]
             seen.add(title)
             items.append({"rank": len(items) + 1, "title": title, "url": href})
-            page_found += 1
-
         if len(items) >= TARGET:
-            break
-        if page_found == 0:
             break
 
     return items[:TARGET]
@@ -262,13 +272,14 @@ def get_ruliweb():
     items = []
     seen = set()
 
-    for page in range(1, 6):
-        url = f"https://m.ruliweb.com/best/humor_only?page={page}"
-        soup = fetch(url, headers=RULIWEB_HEADERS)
-        if not soup:
-            break
+    soups = fetch_pages([
+        f"https://m.ruliweb.com/best/humor_only?page={page}"
+        for page in range(1, 4)
+    ], headers=RULIWEB_HEADERS)
 
-        page_found = 0
+    for soup in soups:
+        if not soup:
+            continue
         for tr in soup.select("tr.table_body"):
             a = tr.select_one("a.subject_link")
             if not a:
@@ -292,11 +303,7 @@ def get_ruliweb():
                 href = "https://m.ruliweb.com" + href
             seen.add(title)
             items.append({"rank": len(items) + 1, "title": title, "url": href})
-            page_found += 1
-
         if len(items) >= TARGET:
-            break
-        if page_found == 0:
             break
 
     return items[:TARGET]
@@ -309,13 +316,14 @@ def get_dcinside():
     items = []
     seen = set()
 
-    for page in range(1, 6):
-        url = f"https://m.dcinside.com/board/dcbest?page={page}"
-        soup = fetch(url, headers=PC_HEADERS)
-        if not soup:
-            break
+    soups = fetch_pages([
+        f"https://m.dcinside.com/board/dcbest?page={page}"
+        for page in range(1, 4)
+    ], headers=PC_HEADERS)
 
-        page_found = 0
+    for soup in soups:
+        if not soup:
+            continue
         for tr in soup.select("tr"):
             ub = tr.select_one(".ub-word")
             if not ub:
@@ -339,11 +347,7 @@ def get_dcinside():
             href = f"https://gall.dcinside.com/board/view/?id={gall_id}&no={gall_no}"
             seen.add(title)
             items.append({"rank": len(items) + 1, "title": title, "url": href})
-            page_found += 1
-
         if len(items) >= TARGET:
-            break
-        if page_found == 0:
             break
 
     return items[:TARGET]
@@ -356,13 +360,14 @@ def get_theqoo():
     items = []
     seen = set()
 
-    for page in range(1, 6):
-        url = f"https://theqoo.net/hot?filter_mode=normal&page={page}"
-        soup = fetch(url, headers=PC_HEADERS)
-        if not soup:
-            break
+    soups = fetch_pages([
+        f"https://theqoo.net/hot?filter_mode=normal&page={page}"
+        for page in range(1, 4)
+    ], headers=PC_HEADERS)
 
-        page_found = 0
+    for soup in soups:
+        if not soup:
+            continue
         for a in soup.select("td.title a[href]"):
             href = a.get("href", "")
             if "#" in href or not re.match(r'^/hot/\d+', href):
@@ -376,11 +381,7 @@ def get_theqoo():
             href = "https://theqoo.net" + href.split("?")[0]
             seen.add(title)
             items.append({"rank": len(items) + 1, "title": title, "url": href})
-            page_found += 1
-
         if len(items) >= TARGET:
-            break
-        if page_found == 0:
             break
 
     return items[:TARGET]
@@ -398,7 +399,6 @@ def get_ppomppu_hot():
     seen = set()
 
     def _parse_hot_links(soup):
-        found = 0
         for a in soup.find_all("a", href=re.compile(r'/zboard/view\.php\?id=\w+&no=\d+')):
             href = a.get("href", "")
             board_match = re.search(r'[?&]id=(\w+)', href)
@@ -419,36 +419,34 @@ def get_ppomppu_hot():
             if title not in seen:
                 seen.add(title)
                 items.append({"rank": len(items) + 1, "title": title, "url": href})
-                found += 1
-        return found
 
-    # hot.php 페이지 수집 (page 파라미터 시도)
-    for page in range(1, 8):
-        url = "https://ppomppu.co.kr/hot.php" if page == 1 else f"https://ppomppu.co.kr/hot.php?page={page}"
-        soup = fetch(url, headers=PPOMPPU_HEADERS)
-        if not soup:
-            break
-        _parse_hot_links(soup)
+    # hot.php 페이지 병렬 수집
+    hot_urls = ["https://ppomppu.co.kr/hot.php"] + [
+        f"https://ppomppu.co.kr/hot.php?page={page}" for page in range(2, 5)
+    ]
+    for soup in fetch_pages(hot_urls, headers=PPOMPPU_HEADERS):
+        if soup:
+            _parse_hot_links(soup)
         if len(items) >= TARGET:
             break
 
     # TARGET 미만이면 자유게시판에서 댓글 많은 글로 보충
     if len(items) < TARGET:
         FREE_HEADERS = {**PC_HEADERS, "Referer": "https://www.ppomppu.co.kr/"}
-        for page in range(1, 6):
-            url = f"https://ppomppu.co.kr/zboard/zboard.php?id=freeboard&page={page}"
-            soup = fetch(url, headers=FREE_HEADERS)
+        for soup in fetch_pages([
+            f"https://ppomppu.co.kr/zboard/zboard.php?id=freeboard&page={page}"
+            for page in range(1, 4)
+        ], headers=FREE_HEADERS):
             if not soup:
-                break
+                continue
             for tr in soup.select("tr.baseList"):
                 a = tr.find("a", href=re.compile(r'view\.php\?id=freeboard&no=\d+'))
                 if not a:
                     continue
                 title = a.get_text(strip=True)
-                title = re.sub(r'\s*\[\d+\]\s*$', '', title).strip()  # 댓글수 제거
+                title = re.sub(r'\s*\[\d+\]\s*$', '', title).strip()
                 if not title or len(title) < 3:
                     continue
-                # 댓글 수 확인 (10개 이상인 글만)
                 reply_el = tr.select_one("td.baseList-reply, span.list_reply, font.list_reply")
                 reply_count = 0
                 if reply_el:
@@ -474,13 +472,14 @@ def get_mlbpark():
     items = []
     seen = set()
 
-    for page in range(1, 6):
-        url = f"https://mlbpark.donga.com/mp/b.php?b=bullpen&page={page}"
-        soup = fetch(url, headers=PC_HEADERS)
-        if not soup:
-            break
+    soups = fetch_pages([
+        f"https://mlbpark.donga.com/mp/b.php?b=bullpen&page={page}"
+        for page in range(1, 4)
+    ], headers=PC_HEADERS)
 
-        page_found = 0
+    for soup in soups:
+        if not soup:
+            continue
         for a in soup.select("div.title a[href*='b=bullpen'][href*='id=']"):
             href = a.get("href", "")
             title = re.sub(r'\[\d+\]\s*$', '', a.get_text(strip=True)).strip()
@@ -490,11 +489,7 @@ def get_mlbpark():
                 href = "https://mlbpark.donga.com" + href
             seen.add(title)
             items.append({"rank": len(items) + 1, "title": title, "url": href})
-            page_found += 1
-
         if len(items) >= TARGET:
-            break
-        if page_found == 0:
             break
 
     return items[:TARGET]
