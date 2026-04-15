@@ -481,10 +481,10 @@ def get_mlbpark():
     items = []
     seen = set()
 
+    # 서버 불안정 — 1페이지만 요청 (다중 요청 시 타임아웃 빈발)
     soups = fetch_pages([
-        f"https://mlbpark.donga.com/mp/b.php?b=bullpen&page={page}"
-        for page in range(1, 4)
-    ], headers=PC_HEADERS)
+        "https://mlbpark.donga.com/mp/b.php?b=bullpen"
+    ], headers=PC_HEADERS, timeout=10)
 
     for soup in soups:
         if not soup:
@@ -504,6 +504,46 @@ def get_mlbpark():
     return items[:TARGET]
 
 
+def get_clien_park():
+    """클리앙 모두의공원 인기글 (공감순)"""
+    items = []
+    seen = set()
+
+    soups = fetch_pages([
+        f"https://www.clien.net/service/board/park?&od=T33&category=0&po={page * 20}"
+        for page in range(0, 3)
+    ], headers={**PC_HEADERS, "Referer": "https://www.clien.net/"})
+
+    for soup in soups:
+        if not soup:
+            continue
+        for div in soup.select("div.list_item"):
+            cls = div.get("class", [])
+            if "notice" in cls or "hongbo" in cls:
+                continue
+            a = div.find("a", href=lambda h: h and "/service/board/park/" in h)
+            if not a:
+                continue
+            title_el = div.select_one(".subject_fixed") or div.select_one(".list_subject")
+            if not title_el:
+                continue
+            title = title_el.get_text(strip=True)
+            title = re.sub(r'\[\d+\]\s*$', '', title).strip()  # 댓글 수 제거
+            if not title or len(title) < 3 or title in seen:
+                continue
+            if _is_politics(title):
+                continue
+            href = a.get("href", "").split("?")[0]
+            if not href.startswith("http"):
+                href = "https://www.clien.net" + href
+            seen.add(title)
+            items.append({"rank": len(items) + 1, "title": title, "url": href})
+        if len(items) >= TARGET:
+            break
+
+    return items[:TARGET]
+
+
 SCRAPERS = {
     "inven": get_inven,
     "bobaedream": get_bobaedream,
@@ -513,4 +553,5 @@ SCRAPERS = {
     "theqoo": get_theqoo,
     "dcinside": get_dcinside,
     "mlbpark": get_mlbpark,
+    "clien": get_clien_park,
 }
