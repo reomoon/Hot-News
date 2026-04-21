@@ -137,12 +137,119 @@ function makeItemHtml(item, idx) {
   const rank = item.rank || (idx + 1);
   const rankClass = rank <= 3 ? ` r${rank}` : '';
   const isHot = rank <= 3;
+  const url = escHtml(item.url);
   return `
-    <a class="post-item" href="${escHtml(item.url)}">
-      <span class="post-rank${rankClass}">${rank}</span>
-      <span class="post-title">${escHtml(item.title)}</span>
-      ${isHot ? '<span class="post-hot">HOT</span>' : ''}
-    </a>`;
+    <div class="post-wrap">
+      <div class="post-row">
+        <a class="post-item" href="${url}" target="_blank" rel="noopener">
+          <span class="post-rank${rankClass}">${rank}</span>
+          <span class="post-title">${escHtml(item.title)}</span>
+          ${isHot ? '<span class="post-hot">HOT</span>' : ''}
+        </a>
+        <button class="comment-toggle" data-url="${url}" aria-label="댓글">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+          <span class="comment-count"></span>
+        </button>
+      </div>
+      <div class="comment-box" hidden>
+        <div class="comment-list"></div>
+        <div class="comment-form">
+          <input class="comment-nick" placeholder="닉네임" maxlength="20">
+          <textarea class="comment-input" placeholder="댓글을 입력하세요" maxlength="300" rows="2"></textarea>
+          <button class="comment-submit">등록</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+// ===== 댓글 =====
+function formatDate(str) {
+  return str ? str.replace('T', ' ').slice(0, 16) : '';
+}
+
+async function loadComments(url, box) {
+  const list = box.querySelector('.comment-list');
+  list.innerHTML = '<p class="comment-loading">불러오는 중...</p>';
+  try {
+    const res = await fetch(`/api/comments?url=${encodeURIComponent(url)}`);
+    const data = await res.json();
+    const toggle = box.closest('.post-wrap').querySelector('.comment-toggle');
+    const countEl = toggle.querySelector('.comment-count');
+    countEl.textContent = data.count || '';
+    if (!data.comments.length) {
+      list.innerHTML = '<p class="comment-empty">첫 댓글을 남겨보세요</p>';
+      return;
+    }
+    list.innerHTML = data.comments.map(c => `
+      <div class="comment-item">
+        <span class="comment-nick">${escHtml(c.nickname)}</span>
+        <span class="comment-date">${formatDate(c.created_at)}</span>
+        <p class="comment-content">${escHtml(c.content)}</p>
+      </div>`).join('');
+  } catch {
+    list.innerHTML = '<p class="comment-empty">불러오기 실패</p>';
+  }
+}
+
+// 댓글 토글 & 등록 — 이벤트 위임
+['community', 'news', 'hotdeal'].forEach(type => {
+  containers[type].addEventListener('click', async e => {
+    // 댓글 토글 버튼
+    const toggle = e.target.closest('.comment-toggle');
+    if (toggle) {
+      e.preventDefault();
+      const wrap = toggle.closest('.post-wrap');
+      const box = wrap.querySelector('.comment-box');
+      const isOpen = !box.hidden;
+      box.hidden = isOpen;
+      if (!isOpen) await loadComments(toggle.dataset.url, box);
+      return;
+    }
+    // 댓글 등록 버튼
+    const submit = e.target.closest('.comment-submit');
+    if (submit) {
+      const form = submit.closest('.comment-form');
+      const box = submit.closest('.comment-box');
+      const nick = form.querySelector('.comment-nick').value.trim();
+      const content = form.querySelector('.comment-input').value.trim();
+      const url = box.closest('.post-wrap').querySelector('.comment-toggle').dataset.url;
+      if (!nick) { alert('닉네임을 입력하세요'); return; }
+      if (!content) { alert('댓글을 입력하세요'); return; }
+      submit.disabled = true;
+      try {
+        await fetch('/api/comments', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url, nickname: nick, content }),
+        });
+        form.querySelector('.comment-input').value = '';
+        await loadComments(url, box);
+      } finally {
+        submit.disabled = false;
+      }
+    }
+  });
+});
+
+// ===== 댓글 카운트 일괄 로드 =====
+async function loadCommentCounts(container) {
+  const toggles = [...container.querySelectorAll('.comment-toggle')];
+  if (!toggles.length) return;
+  const urls = toggles.map(b => b.dataset.url);
+  try {
+    const res = await fetch('/api/comments/counts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ urls }),
+    });
+    const counts = await res.json();
+    toggles.forEach(btn => {
+      const c = counts[btn.dataset.url];
+      btn.querySelector('.comment-count').textContent = c || '';
+    });
+  } catch {}
 }
 
 // ===== 초기 렌더링 =====
@@ -153,6 +260,7 @@ function renderList(container, items) {
     return;
   }
   container.innerHTML = items.slice(0, PAGE_SIZE).map(makeItemHtml).join('');
+  loadCommentCounts(container);
 }
 
 // ===== 추가 로드 (무한 스크롤) =====
@@ -169,6 +277,7 @@ function loadMore(type) {
   const newHtml = allItems.slice(shown, next).map(makeItemHtml).join('');
   containers[type].insertAdjacentHTML('beforeend', newHtml);
   st.shown[source] = next;
+  loadCommentCounts(containers[type]);
 }
 
 // ===== API 호출 =====
@@ -323,11 +432,13 @@ function initSheetDrag(list) {
   let dragged = null;
 
   list.addEventListener('pointerdown', e => {
+    if (!e.target.closest('.drag-handle')) return;
     const item = e.target.closest('.sheet-item');
     if (!item) return;
     dragged = item;
     item.setPointerCapture(e.pointerId);
     item.classList.add('dragging');
+    e.preventDefault(); // 핸들 잡을 때만 스크롤 막기
   });
 
   list.addEventListener('pointermove', e => {
@@ -482,7 +593,7 @@ function initSheetDrag(list) {
   }, { passive: true });
 });
 
-// ===== 서울 날씨 + 미세먼지 =====
+// ===== 날씨 =====
 const WMO_ICON = {
   0:'☀️', 1:'🌤', 2:'⛅', 3:'☁️',
   45:'🌫', 48:'🌫',
@@ -492,12 +603,62 @@ const WMO_ICON = {
   80:'🌦', 81:'🌧', 82:'🌧',
   95:'⛈', 96:'⛈', 99:'⛈',
 };
+const WMO_LABEL = {
+  0:'맑음', 1:'대체로 맑음', 2:'구름 조금', 3:'흐림',
+  45:'안개', 48:'안개',
+  51:'약한 이슬비', 53:'이슬비', 55:'강한 이슬비',
+  61:'약한 비', 63:'비', 65:'강한 비',
+  71:'약한 눈', 73:'눈', 75:'강한 눈', 77:'싸락눈',
+  80:'소나기', 81:'강한 소나기', 82:'폭우',
+  95:'뇌우', 96:'뇌우+우박', 99:'강한 뇌우',
+};
+const DAYS_KO = ['일', '월', '화', '수', '목', '금', '토'];
+
+let _weatherCoords = { lat: 37.5665, lon: 126.9780, city: '서울' };
+
+function dustInfo(pm10) {
+  return pm10 <= 30  ? ['좋음',    '#4caf50'] :
+         pm10 <= 80  ? ['보통',    '#ff9800'] :
+         pm10 <= 150 ? ['나쁨',    '#f44336'] :
+                       ['매우나쁨','#9c27b0'];
+}
+
+async function getCoords() {
+  return new Promise(resolve => {
+    if (!navigator.geolocation) return resolve(null);
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+      ()  => resolve(null),
+      { timeout: 5000 }
+    );
+  });
+}
+
+async function reverseGeocode(lat, lon) {
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=ko`,
+      { headers: { 'Accept-Language': 'ko' } }
+    );
+    const data = await res.json();
+    const addr = data.address || {};
+    return addr.city || addr.town || addr.county || addr.state || '내 위치';
+  } catch { return '내 위치'; }
+}
 
 async function loadWeather() {
   try {
+    const pos = await getCoords();
+    if (pos) {
+      _weatherCoords.lat = pos.lat;
+      _weatherCoords.lon = pos.lon;
+      _weatherCoords.city = await reverseGeocode(pos.lat, pos.lon);
+    }
+
+    const { lat, lon } = _weatherCoords;
     const [wRes, aRes] = await Promise.all([
-      fetch('https://api.open-meteo.com/v1/forecast?latitude=37.5665&longitude=126.9780&current=temperature_2m,weathercode&timezone=Asia/Seoul'),
-      fetch('https://air-quality-api.open-meteo.com/v1/air-quality?latitude=37.5665&longitude=126.9780&current=pm10&timezone=Asia/Seoul'),
+      fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weathercode&timezone=Asia/Seoul`),
+      fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}&current=pm10,pm2_5&timezone=Asia/Seoul`),
     ]);
     const w = await wRes.json();
     const a = await aRes.json();
@@ -506,19 +667,19 @@ async function loadWeather() {
     const code  = w.current.weathercode;
     const pm10  = Math.round(a.current.pm10);
     const icon  = WMO_ICON[code] ?? '🌡';
-
-    const [dustLabel, dustColor] =
-      pm10 <= 30  ? ['미세 좋음',    '#4caf50'] :
-      pm10 <= 80  ? ['미세 보통',    '#ff9800'] :
-      pm10 <= 150 ? ['미세 나쁨',    '#f44336'] :
-                    ['미세 매우나쁨','#9c27b0'];
+    const [dustLabel, dustColor] = dustInfo(pm10);
 
     const el = $('weatherInfo');
+    el.style.cursor = 'pointer';
     el.innerHTML =
       `<span class="weather-temp">${icon} ${temp}°</span>` +
-      `<span class="weather-dust" style="color:${dustColor}">${dustLabel}</span>`;
+      `<span class="weather-dust" style="color:${dustColor}">미세 ${dustLabel}</span>`;
   } catch { /* 조용히 실패 */ }
 }
+
+$('weatherInfo').addEventListener('click', () => {
+  window.open('https://weather.naver.com/', '_blank', 'noopener');
+});
 
 loadWeather();
 

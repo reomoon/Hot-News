@@ -271,11 +271,18 @@ body {
 }
 
 /* ===== Post Item ===== */
+.post-wrap {
+  border-bottom: 1px solid var(--border-light);
+}
+
+.post-wrap:last-child {
+  border-bottom: none;
+}
+
 .post-item {
   display: flex;
   align-items: center;
   padding: 11px 14px;
-  border-bottom: 1px solid var(--border-light);
   gap: 10px;
   cursor: pointer;
   text-decoration: none;
@@ -284,14 +291,11 @@ body {
   -webkit-user-select: none;
   user-select: none;
   min-height: 44px;
+  position: relative;
 }
 
 .post-item:active {
   background: #f7f7f8;
-}
-
-.post-item:last-child {
-  border-bottom: none;
 }
 
 /* 랭크 번호 */
@@ -334,6 +338,129 @@ body {
   align-self: flex-start;
   margin-top: 2px;
 }
+
+/* ===== 댓글 토글 버튼 ===== */
+.post-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.post-row .post-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.comment-toggle {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 6px 10px;
+  transition: color 0.15s;
+  line-height: 1;
+}
+
+.comment-toggle:active { color: var(--accent); }
+
+.comment-count {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent);
+  min-height: 12px;
+}
+
+/* ===== 댓글 박스 ===== */
+.comment-box {
+  background: var(--bg);
+  border-top: 1px solid var(--border-light);
+  padding: 10px 14px 12px;
+}
+
+.comment-item {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.comment-item:last-of-type { border-bottom: none; }
+
+.comment-nick {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-right: 6px;
+}
+
+.comment-date {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.comment-content {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  margin-top: 3px;
+  line-height: 1.45;
+  word-break: keep-all;
+  overflow-wrap: break-word;
+}
+
+.comment-loading,
+.comment-empty {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 10px 0;
+}
+
+/* ===== 댓글 입력 폼 ===== */
+.comment-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.comment-form input.comment-nick,
+.comment-form .comment-input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 0.85rem;
+  font-family: inherit;
+  background: var(--card);
+  color: var(--text);
+  outline: none;
+}
+
+.comment-form input.comment-nick:focus,
+.comment-form .comment-input:focus {
+  border-color: var(--accent);
+}
+
+.comment-form .comment-input {
+  resize: none;
+}
+
+.comment-submit {
+  align-self: flex-end;
+  background: #4c8dd1;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 7px 16px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.comment-submit:disabled { opacity: 0.5; }
 
 /* ===== Spinner ===== */
 .spinner-wrap {
@@ -483,7 +610,6 @@ body {
   gap: 14px;
   padding: 13px 6px;
   border-bottom: 1px solid var(--border-light);
-  touch-action: none;
   user-select: none;
   -webkit-user-select: none;
   background: var(--card);
@@ -506,6 +632,7 @@ body {
   flex-shrink: 0;
   line-height: 1;
   cursor: grab;
+  touch-action: none;
 }
 
 .sheet-item-label {

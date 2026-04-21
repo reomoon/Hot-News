@@ -183,6 +183,8 @@ python app.py
 # http://localhost:5000
 ```
 
+---
+
 ## 배포 (Vercel)
 
 ```bash
@@ -190,3 +192,42 @@ vercel --prod
 ```
 
 `vercel.json`이 비어있어 기본 설정으로 Python WSGI 앱으로 인식됨
+
+---
+
+## 배포 (Railway)
+
+Vercel 서버리스와 달리 **Always-on 컨테이너**로 실행되어 Cold Start 없이 메모리 캐시가 안정적으로 동작함
+
+### 최초 배포
+
+**1. GitHub 권한 부여**
+- [railway.app](https://railway.app) 접속 → GitHub으로 로그인
+- `New Project` → `Deploy from GitHub repo` 클릭
+- 레포 목록에 안 뜨면 하단 **"Configure GitHub App"** 클릭
+- GitHub → Railway App 설정에서 **Repository access** → `Hot-News` 레포 선택 후 Save
+- Railway로 돌아오면 레포가 목록에 표시됨
+
+**2. 레포 선택 & 배포**
+- `Hot-News` 선택 → Railway가 자동으로 빌드 & 배포
+- `railway.toml`, `Procfile`을 감지해 gunicorn으로 실행
+
+**3. 도메인 발급**
+- Railway 대시보드 → 서비스 클릭 → `Settings` → `Networking` → **Generate Domain**
+- `xxx.up.railway.app` 형태의 주소 발급됨
+
+### 이후 배포
+
+GitHub에 push하면 Railway가 자동으로 재배포함
+
+```bash
+git push origin main
+```
+
+### 관련 파일
+
+| 파일 | 역할 |
+|---|---|
+| `Procfile` | 실행 명령 (`gunicorn app:app`) |
+| `railway.toml` | 빌드/배포 설정 |
+| `requirements.txt` | gunicorn 포함 |
