@@ -395,7 +395,7 @@ function openTabSheet(section) {
     const li = document.createElement('li');
     li.className = 'sheet-item';
     li.dataset.source = btn.dataset.source;
-    li.innerHTML = `<button type="button" class="drag-handle" aria-label="순서 변경">⠿</button>
+    li.innerHTML = `<button type="button" class="drag-handle" aria-label="순서 변경">≡</button>
       <span class="sheet-item-label">${btn.textContent.trim()}</span>`;
     list.appendChild(li);
   });
@@ -463,43 +463,69 @@ function initSheetDrag(list) {
   list.dataset.dragReady = '1';
 
   let dragged = null;
-  let dragHandle = null;
+  let dragging = false;
 
-  list.addEventListener('pointerdown', e => {
-    const handle = e.target.closest('.drag-handle');
-    if (!handle) return;
-    const item = handle.closest('.sheet-item');
-    if (!item) return;
-    dragHandle = handle;
-    dragged = item;
-    dragHandle.setPointerCapture(e.pointerId);
-    item.classList.add('dragging');
-    e.preventDefault(); // 핸들 잡을 때만 스크롤 막기
-  });
-
-  list.addEventListener('pointermove', e => {
+  const moveDraggedItem = (clientX, clientY) => {
     if (!dragged) return;
-    const under = document.elementFromPoint(e.clientX, e.clientY);
+    const under = document.elementFromPoint(clientX, clientY);
     const target = under?.closest('.sheet-item');
     if (target && target !== dragged) {
       const rect = target.getBoundingClientRect();
-      if (e.clientY < rect.top + rect.height / 2) {
+      if (clientY < rect.top + rect.height / 2) {
         list.insertBefore(dragged, target);
       } else {
         list.insertBefore(dragged, target.nextSibling);
       }
     }
-  });
+  };
 
   const endDrag = () => {
     if (!dragged) return;
     dragged.classList.remove('dragging');
     dragged = null;
-    dragHandle = null;
+    dragging = false;
   };
+
+  list.addEventListener('pointerdown', e => {
+    if (!e.target.closest('.drag-handle')) return;
+    const item = e.target.closest('.sheet-item');
+    if (!item) return;
+    dragged = item;
+    dragging = true;
+    item.classList.add('dragging');
+    e.preventDefault();
+  });
+
+  list.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    moveDraggedItem(e.clientX, e.clientY);
+    e.preventDefault();
+  });
+
   list.addEventListener('pointerup', endDrag);
   list.addEventListener('pointercancel', endDrag);
-  list.addEventListener('lostpointercapture', endDrag, true);
+
+  list.addEventListener('touchstart', e => {
+    const handle = e.target.closest('.drag-handle');
+    if (!handle) return;
+    const item = handle.closest('.sheet-item');
+    if (!item) return;
+    dragged = item;
+    dragging = true;
+    item.classList.add('dragging');
+    e.preventDefault();
+  }, { passive: false });
+
+  list.addEventListener('touchmove', e => {
+    if (!dragging || !dragged) return;
+    const touch = e.touches[0];
+    if (!touch) return;
+    moveDraggedItem(touch.clientX, touch.clientY);
+    e.preventDefault();
+  }, { passive: false });
+
+  list.addEventListener('touchend', endDrag);
+  list.addEventListener('touchcancel', endDrag);
 }
 
 // ===== 서브탭 스와이프 애니메이션 (iOS 스타일) =====
