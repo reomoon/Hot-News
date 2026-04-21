@@ -504,6 +504,32 @@ def get_mlbpark():
     return items[:TARGET]
 
 
+def get_instiz():
+    """인스티즈 실시간 베스트 (사이트 순위 순서 그대로)"""
+    items = []
+    seen = set()
+
+    soup = fetch("https://www.instiz.net/hot.htm", headers=PC_HEADERS)
+    if not soup:
+        return items
+
+    for a in soup.select("div.result_search a[href]"):
+        href = a.get("href", "")
+        if not re.search(r'instiz\.net/(pt|name|name_enter)/\d+', href):
+            continue
+        title_el = a.select_one("h3.search_title")
+        if not title_el:
+            continue
+        title = title_el.get_text(strip=True)
+        if not title or len(title) < 2 or title in seen:
+            continue
+        url = href.split("?")[0]
+        seen.add(title)
+        items.append({"rank": len(items) + 1, "title": title, "url": url})
+
+    return items
+
+
 def get_clien_park():
     """클리앙 모두의공원 인기글 (공감순)"""
     items = []
@@ -554,4 +580,5 @@ SCRAPERS = {
     "dcinside": get_dcinside,
     "mlbpark": get_mlbpark,
     "clien": get_clien_park,
+    "instiz": get_instiz,
 }
