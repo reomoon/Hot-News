@@ -208,6 +208,38 @@ def get_naver_world():
 def get_naver_it():
     return get_naver_section("https://news.naver.com/breakingnews/section/105/230")
 
+def get_naver_ent():
+    """네이버 연예 인기 기사 (언론사별 일간 랭킹 통합)
+    참조: NEWS_SCRAPERS["ent2"] → app.py /api/news/ent2 → index.html data-source="ent2"
+    """
+    soup = fetch("https://news.naver.com/main/ranking/popularDay.naver?sectionId=106")
+    if not soup:
+        return []
+
+    items = []
+    seen = set()
+
+    for box in soup.select("div.rankingnews_box"):
+        for li in box.select("ul.rankingnews_list li"):
+            a = li.select_one("a.list_title")
+            if not a:
+                continue
+            title = a.get_text(strip=True)
+            href = a.get("href", "").split("?")[0]
+            if not title or len(title) < 4 or title in seen:
+                continue
+            if not href.startswith("http"):
+                href = "https://n.news.naver.com" + href
+            seen.add(title)
+            items.append({"rank": len(items) + 1, "title": title, "url": href})
+            if len(items) >= 50:
+                break
+        if len(items) >= 50:
+            break
+
+    return items[:50]
+
+
 def get_nate_sports():
     """네이트 스포츠 뉴스 일간 랭킹
     참조: NEWS_SCRAPERS["sports"] → app.py /api/news/sports → index.html data-source="sports"
@@ -298,6 +330,7 @@ def get_newstravel_overseas():
 # 참조: app.py api_news() → /api/news/<category>
 NEWS_SCRAPERS = {
     "ent": get_nate_ent,
+    "ent2": get_naver_ent,
     "society": get_naver_society,
     "economy": get_naver_economy,
     "stocks": get_naver_stocks,

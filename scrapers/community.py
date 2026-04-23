@@ -10,12 +10,11 @@ from urllib3.util.retry import Retry
 from urllib.parse import urlparse
 
 try:
-    import cloudscraper
-    _scraper = cloudscraper.create_scraper(
-        browser={"browser": "chrome", "platform": "windows", "mobile": False}
-    )
+    from curl_cffi import requests as _cf_requests
+    _CURL_CFFI = True
 except Exception:
-    _scraper = None
+    _cf_requests = None
+    _CURL_CFFI = False
 
 # 세션 + 자동 재시도 (HTTP 오류 + 연결/타임아웃 오류 포함)
 _session = requests.Session()
@@ -103,11 +102,11 @@ def fetch(url, headers=None, timeout=8):
 
 
 def fetch_cf(url, timeout=15):
-    """Cloudflare 보호 사이트용 scraper"""
+    """Cloudflare 보호 사이트용 (curl_cffi로 TLS 핑거프린트 우회)"""
     try:
-        if _scraper:
+        if _CURL_CFFI:
             _pace_request(url)
-            r = _scraper.get(url, timeout=timeout)
+            r = _cf_requests.get(url, impersonate="chrome120", timeout=timeout)
             r.raise_for_status()
             return BeautifulSoup(r.content, "lxml")
         return fetch(url, timeout=timeout)
@@ -366,7 +365,7 @@ def get_dcinside():
     soups = fetch_pages([
         f"https://m.dcinside.com/board/dcbest?page={page}"
         for page in range(1, 4)
-    ], headers=PC_HEADERS)
+    ], use_cf=True)
 
     for soup in soups:
         if not soup:
